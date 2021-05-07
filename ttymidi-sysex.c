@@ -465,7 +465,7 @@ void write_midi_action_to_serial_port(snd_seq_t* seq_handle)
 				break;
 
 			default:
-				if (!arguments.verbose) {  // *new*
+				if (!arguments.silent) {  // *new*
 					printf("Alsa    %02X Unknown MIDI cmd   %02X %02X %02X\n", bytes[0]&0xF0, bytes[0]&0x0F, bytes[1], bytes[2]);  // *new*
 					fflush(stdout);  // *new*
 				}
