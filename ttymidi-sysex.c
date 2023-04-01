@@ -69,6 +69,12 @@
 
 	See tags *new* on changes wrt original ttymidi code and/or JW's or EB's code (I did not use sixeight7's code at all)
 	To compile: gcc ttymidi-sysex.c -o ttymidi-sysex -lasound -lpthread
+	
+	**************************
+	Modified 2023 by totoraymond
+	**************************
+	Based on previous code, I just modified the I/O ports name in ALSA so more than one instance on ttymidi-sysex would appear with different name in other software.
+	Also, I added a bit of code to comply with MIDI specification RUNNING STATUS MODE which was mandatory for my use.
 */
 
 
@@ -94,6 +100,8 @@
 #define MAX_DEV_STR_LEN    32
 #define MAX_MSG_SIZE     1024
 #define BUF_SIZE         1024  // Size of the serial midi buffer - determines the maximum size of sysex messages *new*
+
+unsigned char latest_status; //sotre the latest Status Byte received to comply with running mode. 
 
 /* change this definition for the correct port */
 //#define _POSIX_SOURCE 1 /* POSIX compliant source */
@@ -217,15 +225,23 @@ int open_seq(snd_seq_t** seq)
 	}
 
 	snd_seq_set_client_name(*seq, arguments.name);
+	
+	char nameInput[MAX_DEV_STR_LEN];
+	strcpy(nameInput, arguments.name);
+	strcat(nameInput, " In");
 
-	if ((port_out_id = snd_seq_create_simple_port(*seq, "MIDI out",
+	if ((port_out_id = snd_seq_create_simple_port(*seq, nameInput,
 					SND_SEQ_PORT_CAP_READ|SND_SEQ_PORT_CAP_SUBS_READ,
 					SND_SEQ_PORT_TYPE_MIDI_GENERIC|SND_SEQ_PORT_TYPE_APPLICATION)) < 0)  // *new*
 	{
 		fprintf(stderr, "Error creating sequencer MIDI out port.\n");  // *new*
 	}
+	
+	char nameOutput[MAX_DEV_STR_LEN];
+	strcpy(nameInput, arguments.name);
+	strcat(nameInput, " Out");
 
-	if ((port_in_id = snd_seq_create_simple_port(*seq, "MIDI in",
+	if ((port_in_id = snd_seq_create_simple_port(*seq, nameOutput,
 					SND_SEQ_PORT_CAP_WRITE|SND_SEQ_PORT_CAP_SUBS_WRITE,
 					SND_SEQ_PORT_TYPE_MIDI_GENERIC|SND_SEQ_PORT_TYPE_APPLICATION)) < 0)  // *new*
 	{
@@ -557,6 +573,7 @@ void* read_midi_from_serial_port(void* seq)
 		// int i = 1; *new*
 		i = 1;  // *new* (i already declared at function start)
 		bytesleft = BUF_SIZE - 1;  // *new*
+		buf[0] = 0x00; //initialize Status Byte
 
 		while (i < bytesleft) {  // *new*
 			read(serial, buf+i, 1);
@@ -572,6 +589,7 @@ void* read_midi_from_serial_port(void* seq)
 				buf[0] = buf[i];
 				if(buf[0] != 0xF0)	//if not SysEx *new*
 					bytesleft = 3;
+				latest_status = buf[0] & 0xFF; //store the status byte for running status compliance
 				i = 1;
 			} else {
 				if(buf[0] == 0xF0)	//if SysEx *new*
@@ -581,6 +599,13 @@ void* read_midi_from_serial_port(void* seq)
 				else
 				{
 					/* Data byte received */
+					if (buf[0] < 0x80) {
+						/*First byte received is a data byte, so we are in running status mode
+						*/
+						buf[0] = latest_status; 	//recover latest status
+						bytesleft = 3;
+						i = 1;
+					}
 					if (i == 2) {
 						/* It was 2nd data byte so we have a MIDI event
 						   process! */
